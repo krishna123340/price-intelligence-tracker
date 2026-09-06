@@ -37,26 +37,49 @@ st_autorefresh(
 
 
 # ==========================================
-# TITLE
+# DASHBOARD HEADER
 # ==========================================
 
 st.title("📊 Price Intelligence Tracker")
 
-st.caption(
-    "Automated Price Monitoring & Smart Alert System"
+st.markdown(
+    """
+    **Smart Product Price Monitoring & Alert System**
+
+    Track product prices, analyze price changes,
+    and receive instant alerts when prices drop.
+    """
 )
+
+st.divider()
 
 
 # ==========================================
-# ALERT THRESHOLD
+# SIDEBAR SETTINGS
 # ==========================================
 
-alert_threshold = st.slider(
-    "🚨 Alert Threshold (%)",
-    min_value=1,
-    max_value=20,
-    value=5
-)
+with st.sidebar:
+
+    st.header("⚙️ Settings")
+
+    alert_threshold = st.slider(
+        "🚨 Alert Threshold (%)",
+        min_value=1,
+        max_value=20,
+        value=5
+    )
+
+    st.divider()
+
+    st.caption("💱 GBP → INR Rate")
+
+    st.write(
+        f"₹{GBP_TO_INR} per £1"
+    )
+
+    st.caption(
+        "🔄 Dashboard refreshes every 1 minute"
+    )
 
 
 # ==========================================
@@ -191,9 +214,7 @@ for product in latest_df["product"]:
             change_percent
         )
 
-        status = (
-            "📉 Price Dropped"
-        )
+        status = "📉 Price Dropped"
 
         if drop_percent >= alert_threshold:
 
@@ -206,15 +227,11 @@ for product in latest_df["product"]:
 
     elif change_percent > 0:
 
-        status = (
-            "📈 Price Increased"
-        )
+        status = "📈 Price Increased"
 
     else:
 
-        status = (
-            "➡️ Unchanged"
-        )
+        status = "➡️ Unchanged"
 
 
     # --------------------------------------
@@ -315,8 +332,6 @@ col4.metric(
 
 st.header("🛍️ Products")
 
-
-# Format values for display
 
 display_df = summary_df.copy()
 
@@ -557,7 +572,6 @@ st.caption(
     f"🕒 Last updated: "
     f"{last_updated}"
 )
-
 
 st.caption(
     f"💱 GBP → INR Rate: "
