@@ -175,26 +175,28 @@ active_drops = len(
     drop_products
 )
 
-
-col1, col2, col3 = st.columns(3)
-
+col1, col2, col3, col4 = st.columns(4)
 
 col1.metric(
     "🛍️ Total Products",
     total_products
 )
 
-
 col2.metric(
     "💰 Average Price",
     f"₹{average_price:,.2f}"
 )
 
-
 col3.metric(
+    "🏆 Lowest Price",
+    f"₹{df['price_inr'].min():,.2f}"
+)
+
+col4.metric(
     "🚨 Active Drops",
     active_drops
 )
+
 
 
 # ==========================================
@@ -268,8 +270,23 @@ summary_df = pd.DataFrame(
 )
 
 
+def highlight_status(row):
+
+    if "Price Dropped" in row["Status"]:
+        return ["background-color: rgba(0, 255, 0, 0.15)"] * len(row)
+
+    elif "Price Increased" in row["Status"]:
+        return ["background-color: rgba(255, 165, 0, 0.15)"] * len(row)
+
+    else:
+        return [""] * len(row)
+
+
 st.dataframe(
-    summary_df,
+    summary_df.style.apply(
+        highlight_status,
+        axis=1
+    ),
     use_container_width=True,
     hide_index=True
 )
