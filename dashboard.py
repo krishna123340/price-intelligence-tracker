@@ -1,7 +1,8 @@
-import streamlit as st
 import sqlite3
+
 import pandas as pd
 import plotly.express as px
+import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 
@@ -9,7 +10,14 @@ from streamlit_autorefresh import st_autorefresh
 # CONFIGURATION
 # ==========================================
 
+DATABASE = "prices.db"
+
 GBP_TO_INR = 128
+
+
+# ==========================================
+# PAGE CONFIGURATION
+# ==========================================
 
 st.set_page_config(
     page_title="Price Intelligence Tracker",
@@ -17,9 +25,14 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ==========================================
+# AUTO REFRESH
+# ==========================================
+
 st_autorefresh(
     interval=60000,
-    key="price_refresh"
+    key="price_tracker_refresh"
 )
 
 
@@ -47,45 +60,43 @@ alert_threshold = st.slider(
 
 
 # ==========================================
-# DATABASE
+# LOAD DATABASE
 # ==========================================
 
-try:
+db = sqlite3.connect(DATABASE)
 
-    db = sqlite3.connect("prices.db")
+df = pd.read_sql_query(
+    """
+    SELECT product, price, date
+    FROM prices
+    ORDER BY date ASC
+    """,
+    db
+)
 
-    df = pd.read_sql_query(
-        """
-        SELECT product, price, date
-        FROM prices
-        ORDER BY date
-        """,
-        db
-    )
+db.close()
 
-    db.close()
 
-except Exception as error:
-
-    st.error(
-        f"❌ Database error: {error}"
-    )
-
-    st.stop()
-
+# ==========================================
+# CHECK DATABASE
+# ==========================================
 
 if df.empty:
 
     st.warning(
-        "⚠️ No price data available."
+        "⚠️ No price data available yet."
     )
 
     st.stop()
 
 
 # ==========================================
-# CONVERT GBP → INR
+# DATA PREPARATION
 # ==========================================
+
+df["date"] = pd.to_datetime(
+    df["date"]
+)
 
 df["price_inr"] = (
     df["price"] * GBP_TO_INR
@@ -93,104 +104,204 @@ df["price_inr"] = (
 
 
 # ==========================================
-# PRICE DROP ALERTS
+# LATEST PRICE FOR EACH PRODUCT
 # ==========================================
 
-st.subheader("🚨 Price Drop Alerts")
+latest_df = (
+    df.sort_values("date")
+    .groupby(
+        "product",
+        as_index=False
+    )
+    .tail(1)
+)
+
+
+# ==========================================
+# KPI CALCULATIONS
+# ==========================================
+
+total_products = (
+    latest_df["product"].nunique()
+)
+
+average_price = (
+    latest_df["price_inr"].mean()
+)
+
+lowest_price = (
+    latest_df["price_inr"].min()
+)
+
+
+# ==========================================
+# PRICE CHANGE ANALYSIS
+# ==========================================
 
 drop_products = []
 
-
-for product_name in df["product"].unique():
-
-    product_rows = df[
-        df["product"] == product_name
-    ]
-
-    if len(product_rows) < 2:
-        continue
-
-    latest = product_rows.iloc[-1]["price_inr"]
-
-    previous = product_rows.iloc[-2]["price_inr"]
+summary_data = []
 
 
-    if latest < previous:
+for product in latest_df["product"]:
 
-        drop = (
-            (previous - latest)
-            / previous
+    product_history = (
+        df[df["product"] == product]
+        .sort_values("date")
+    )
+
+    latest_price = (
+        product_history.iloc[-1]["price"]
+    )
+
+    if len(product_history) >= 2:
+
+        previous_price = (
+            product_history.iloc[-2]["price"]
+        )
+
+    else:
+
+        previous_price = latest_price
+
+
+    # --------------------------------------
+    # Calculate percentage change
+    # --------------------------------------
+
+    if previous_price != 0:
+
+        change_percent = (
+            (latest_price - previous_price)
+            / previous_price
         ) * 100
 
+    else:
 
-        if drop >= alert_threshold:
+        change_percent = 0
 
-            if drop >= 10:
 
-                alert_message = (
-                    f"🚨 BIG PRICE DROP: "
-                    f"{product_name} — "
-                    f"{drop:.2f}%"
-                )
+    # --------------------------------------
+    # Determine status
+    # --------------------------------------
 
-            else:
+    if change_percent < 0:
 
-                alert_message = (
-                    f"⚠️ PRICE DROP: "
-                    f"{product_name} — "
-                    f"{drop:.2f}%"
-                )
+        drop_percent = abs(
+            change_percent
+        )
+
+        status = (
+            "📉 Price Dropped"
+        )
+
+        if drop_percent >= alert_threshold:
 
             drop_products.append(
-                alert_message
+                {
+                    "product": product,
+                    "drop": drop_percent
+                }
             )
 
+    elif change_percent > 0:
 
-if drop_products:
+        status = (
+            "📈 Price Increased"
+        )
 
-    for alert in drop_products:
+    else:
 
-        st.error(alert)
+        status = (
+            "➡️ Unchanged"
+        )
 
-else:
 
-    st.success(
-        "✅ No price drops detected"
+    # --------------------------------------
+    # Save summary
+    # --------------------------------------
+
+    summary_data.append(
+        {
+            "Product": product,
+            "Current Price": (
+                latest_price * GBP_TO_INR
+            ),
+            "Previous Price": (
+                previous_price * GBP_TO_INR
+            ),
+            "Change": change_percent,
+            "Status": status
+        }
     )
 
 
 # ==========================================
-# DASHBOARD METRICS
+# SUMMARY DATAFRAME
 # ==========================================
 
-total_products = (
-    df["product"].nunique()
+summary_df = pd.DataFrame(
+    summary_data
 )
 
-average_price = (
-    df["price_inr"].mean()
-)
+
+# ==========================================
+# ACTIVE DROPS
+# ==========================================
 
 active_drops = len(
     drop_products
 )
 
+
+# ==========================================
+# PRICE DROP ALERTS
+# ==========================================
+
+st.header("🚨 Price Drop Alerts")
+
+
+if active_drops == 0:
+
+    st.success(
+        "✅ No price drops detected"
+    )
+
+else:
+
+    for item in drop_products:
+
+        st.error(
+            f"📉 {item['product']} "
+            f"price dropped by "
+            f"{item['drop']:.2f}%"
+        )
+
+
+# ==========================================
+# KPI CARDS
+# ==========================================
+
 col1, col2, col3, col4 = st.columns(4)
+
 
 col1.metric(
     "🛍️ Total Products",
     total_products
 )
 
+
 col2.metric(
     "💰 Average Price",
     f"₹{average_price:,.2f}"
 )
 
+
 col3.metric(
     "🏆 Lowest Price",
-    f"₹{df['price_inr'].min():,.2f}"
+    f"₹{lowest_price:,.2f}"
 )
+
 
 col4.metric(
     "🚨 Active Drops",
@@ -198,92 +309,67 @@ col4.metric(
 )
 
 
-
 # ==========================================
 # PRODUCTS
 # ==========================================
 
-st.subheader("🛍️ Products")
-
-product_summary = []
+st.header("🛍️ Products")
 
 
-for product_name in df["product"].unique():
+# Format values for display
 
-    product_rows = df[
-        df["product"] == product_name
-    ]
+display_df = summary_df.copy()
 
 
-    if len(product_rows) < 2:
-        continue
-
-
-    current = (
-        product_rows.iloc[-1]["price_inr"]
+display_df["Current Price"] = (
+    display_df["Current Price"]
+    .apply(
+        lambda x: f"₹{x:,.2f}"
     )
-
-    previous = (
-        product_rows.iloc[-2]["price_inr"]
-    )
-
-
-    change = (
-        (current - previous)
-        / previous
-    ) * 100
-
-
-    if current < previous:
-
-        status = "📉 Price Dropped"
-
-    elif current > previous:
-
-        status = "📈 Price Increased"
-
-    else:
-
-        status = "➡️ Unchanged"
-
-
-    product_summary.append({
-
-        "Product": product_name,
-
-        "Current Price":
-            f"₹{current:,.2f}",
-
-        "Previous Price":
-            f"₹{previous:,.2f}",
-
-        "Change":
-            f"{change:.2f}%",
-
-        "Status":
-            status
-    })
-
-
-summary_df = pd.DataFrame(
-    product_summary
 )
 
+
+display_df["Previous Price"] = (
+    display_df["Previous Price"]
+    .apply(
+        lambda x: f"₹{x:,.2f}"
+    )
+)
+
+
+display_df["Change"] = (
+    display_df["Change"]
+    .apply(
+        lambda x: f"{x:.2f}%"
+    )
+)
+
+
+# ==========================================
+# ROW HIGHLIGHTING
+# ==========================================
 
 def highlight_status(row):
 
     if "Price Dropped" in row["Status"]:
-        return ["background-color: rgba(0, 255, 0, 0.15)"] * len(row)
+
+        return [
+            "background-color: rgba(0, 255, 0, 0.15)"
+        ] * len(row)
 
     elif "Price Increased" in row["Status"]:
-        return ["background-color: rgba(255, 165, 0, 0.15)"] * len(row)
+
+        return [
+            "background-color: rgba(255, 165, 0, 0.15)"
+        ] * len(row)
 
     else:
+
         return [""] * len(row)
 
 
 st.dataframe(
-    summary_df.style.apply(
+    display_df.style.apply(
         highlight_status,
         axis=1
     ),
@@ -296,30 +382,29 @@ st.dataframe(
 # PRICE HISTORY
 # ==========================================
 
-st.subheader("📊 Price History")
+st.header("📊 Price History")
 
 
-product = st.selectbox(
-    "🔎 Select a product",
+selected_product = st.selectbox(
+    "Select Product",
     sorted(
         df["product"].unique()
     )
 )
 
 
-product_data = df[
-    df["product"] == product
-].copy()
+# ==========================================
+# SELECTED PRODUCT DATA
+# ==========================================
 
-
-if len(product_data) < 2:
-
-    st.info(
-        "⏳ Price history ke liye "
-        "kam se kam 2 records chahiye."
-    )
-
-    st.stop()
+product_df = (
+    df[
+        df["product"]
+        == selected_product
+    ]
+    .sort_values("date")
+    .copy()
+)
 
 
 # ==========================================
@@ -327,128 +412,134 @@ if len(product_data) < 2:
 # ==========================================
 
 current_price = (
-    product_data.iloc[-1]["price_inr"]
+    product_df.iloc[-1]["price"]
 )
 
-previous_price = (
-    product_data.iloc[-2]["price_inr"]
-)
+if len(product_df) >= 2:
 
-last_updated = (
-    product_data.iloc[-1]["date"]
-)
-
-
-price_change = (
-    (current_price - previous_price)
-    / previous_price
-) * 100
-
-
-# ==========================================
-# PRICE STATUS
-# ==========================================
-
-if current_price < previous_price:
-
-    st.success(
-        f"📉 Price dropped by "
-        f"₹{previous_price - current_price:,.2f}"
-    )
-
-elif current_price > previous_price:
-
-    st.warning(
-        f"📈 Price increased by "
-        f"₹{current_price - previous_price:,.2f}"
+    previous_price = (
+        product_df.iloc[-2]["price"]
     )
 
 else:
 
-    st.info(
-        "➡️ Price unchanged!"
-    )
-
-
-# ==========================================
-# CURRENT PRICE
-# ==========================================
-
-st.metric(
-    "💰 Current Price",
-    f"₹{current_price:,.2f}"
-)
-
-
-# ==========================================
-# LOWEST / HIGHEST
-# ==========================================
-
-lowest_price = (
-    product_data["price_inr"].min()
-)
-
-highest_price = (
-    product_data["price_inr"].max()
-)
-
-
-col1, col2 = st.columns(2)
-
-
-col1.metric(
-    "🏆 Lowest Price",
-    f"₹{lowest_price:,.2f}"
-)
-
-
-col2.metric(
-    "📈 Highest Price",
-    f"₹{highest_price:,.2f}"
-)
+    previous_price = current_price
 
 
 # ==========================================
 # PRICE CHANGE
 # ==========================================
 
-st.metric(
-    "📉 Price Change",
-    f"{price_change:.2f}%"
+if previous_price != 0:
+
+    price_change = (
+        (current_price - previous_price)
+        / previous_price
+    ) * 100
+
+else:
+
+    price_change = 0
+
+
+# ==========================================
+# PRICE STATISTICS
+# ==========================================
+
+history_low = (
+    product_df["price_inr"].min()
+)
+
+history_high = (
+    product_df["price_inr"].max()
+)
+
+last_updated = (
+    product_df["date"].max()
 )
 
 
 # ==========================================
-# LAST UPDATED
+# HISTORY METRICS
 # ==========================================
 
-formatted_time = pd.to_datetime(
-    last_updated
-).strftime(
-    "%d %b %Y, %I:%M %p"
+hcol1, hcol2, hcol3, hcol4 = st.columns(4)
+
+
+hcol1.metric(
+    "Current Price",
+    f"₹{current_price * GBP_TO_INR:,.2f}"
 )
 
 
-st.write(
-    "🕐 Last Updated:",
-    formatted_time
+hcol2.metric(
+    "Previous Price",
+    f"₹{previous_price * GBP_TO_INR:,.2f}"
+)
+
+
+hcol3.metric(
+    "Lowest Price",
+    f"₹{history_low:,.2f}"
+)
+
+
+hcol4.metric(
+    "Highest Price",
+    f"₹{history_high:,.2f}"
 )
 
 
 # ==========================================
-# PRICE GRAPH
+# PRICE CHANGE INFORMATION
 # ==========================================
+
+if price_change < 0:
+
+    st.success(
+        f"📉 Price decreased by "
+        f"{abs(price_change):.2f}%"
+    )
+
+elif price_change > 0:
+
+    st.warning(
+        f"📈 Price increased by "
+        f"{price_change:.2f}%"
+    )
+
+else:
+
+    st.info(
+        "➡️ Price unchanged"
+    )
+
+
+# ==========================================
+# PRICE HISTORY CHART
+# ==========================================
+
+chart_df = product_df.copy()
+
 
 fig = px.line(
-    product_data,
+    chart_df,
     x="date",
     y="price_inr",
-    title=f"📈 Price History: {product}",
     markers=True,
+    title=(
+        f"Price History — "
+        f"{selected_product}"
+    ),
     labels={
-        "date": "Date & Time",
-        "price_inr": "Price (₹)"
+        "date": "Date",
+        "price_inr": "Price (INR)"
     }
+)
+
+
+fig.update_layout(
+    hovermode="x unified"
 )
 
 
@@ -459,10 +550,16 @@ st.plotly_chart(
 
 
 # ==========================================
-# EXCHANGE RATE INFO
+# LAST UPDATED
 # ==========================================
 
 st.caption(
-    f"💱 Display conversion: "
-    f"£1 = ₹{GBP_TO_INR}"
+    f"🕒 Last updated: "
+    f"{last_updated}"
+)
+
+
+st.caption(
+    f"💱 GBP → INR Rate: "
+    f"₹{GBP_TO_INR}"
 )
