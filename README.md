@@ -24,6 +24,9 @@ The project also includes an interactive **Streamlit dashboard** for monitoring 
 | ⏰ Automation | Automatically checks prices at scheduled intervals |
 
 ---
+## 📸 Dashboard Preview
+
+![Price Intelligence Tracker Dashboard](screenshots/dashboard.png)
 
 ## 🛠️ Tech Stack
 
