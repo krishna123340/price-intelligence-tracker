@@ -1,3 +1,4 @@
 .DS_Store
 .env
 prices.db
+__pycache__/

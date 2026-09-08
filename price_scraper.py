@@ -2,6 +2,8 @@ import os
 import sqlite3
 import requests
 import smtplib
+import time
+import schedule
 
 from bs4 import BeautifulSoup
 from email.message import EmailMessage
@@ -13,6 +15,7 @@ from dotenv import load_dotenv
 # ==========================================
 
 load_dotenv()
+
 
 PRODUCT_URLS = [
     "https://books.toscrape.com/catalogue/a-light-in-the-attic_1000/index.html",
@@ -26,12 +29,16 @@ ALERT_THRESHOLD = 5
 
 GBP_TO_INR = 128
 
+# Automatic checking interval
+CHECK_INTERVAL_MINUTES = 60
+
+
 # ==========================================
 # ALERT TEST MODE
 # ==========================================
 
-# True = Gmail + Telegram test
-# False = Normal price monitoring
+# True = test Email + Telegram
+# False = normal price monitoring
 
 TEST_ALERT = False
 
@@ -80,7 +87,6 @@ def send_email_alert(
     )
 
     message["From"] = EMAIL_SENDER
-
     message["To"] = EMAIL_RECEIVER
 
     message.set_content(
@@ -188,7 +194,6 @@ def test_alert():
     product_name = "A Light in the Attic"
 
     previous_price = 60
-
     latest_price = 40
 
     drop_percent = (
@@ -348,7 +353,6 @@ def create_database():
     """)
 
     db.commit()
-
     db.close()
 
 
@@ -394,7 +398,6 @@ def save_prices(products):
         )
 
     db.commit()
-
     db.close()
 
 
@@ -511,7 +514,7 @@ def check_price_changes():
 
 
 # ==========================================
-# MAIN PROGRAM
+# MAIN PRICE CHECK
 # ==========================================
 
 def main():
@@ -560,9 +563,43 @@ def main():
 
 
 # ==========================================
+# AUTOMATIC SCHEDULER
+# ==========================================
+
+def run_scheduler():
+
+    print(
+        "\n⏰ Automatic price monitoring started."
+    )
+
+    print(
+        f"🔄 Checking every "
+        f"{CHECK_INTERVAL_MINUTES} minutes."
+    )
+
+    print(
+        "Press Ctrl + C to stop."
+    )
+
+    # Run once immediately
+    main()
+
+    # Schedule future checks
+    schedule.every(
+        CHECK_INTERVAL_MINUTES
+    ).minutes.do(main)
+
+    while True:
+
+        schedule.run_pending()
+
+        time.sleep(1)
+
+
+# ==========================================
 # PROGRAM START
 # ==========================================
 
 if __name__ == "__main__":
 
-    main()
+    run_scheduler()
