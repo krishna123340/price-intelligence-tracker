@@ -1,4 +1,11 @@
 .DS_Store
 .env
 prices.db
-__pycache__/
+__pycache__/users.db
+users.db
+frontend/*.db
+frontend/.DS_Store
+frontend/*_backup.py
+frontend/app_old.py
+frontend/app_before_*.py
+frontend/app_product_details_error.py
